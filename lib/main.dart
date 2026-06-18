@@ -1,5 +1,6 @@
 import 'package:bankos_admin_fronted/bankos_shared.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 void main() {
   runApp(const BankOsAdminWebApp());
@@ -21,7 +22,7 @@ class BankOsAdminWebApp extends StatelessWidget {
           secondary: const Color(0xffffc928),
           surface: Colors.white,
         ),
-        fontFamily: 'Arial',
+        textTheme: GoogleFonts.dmSansTextTheme(),
       ),
       home: const BankOsAdminPage(),
     );

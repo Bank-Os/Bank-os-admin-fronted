@@ -840,6 +840,8 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                                 tenantIdController: tenantIdController,
                                 tenantNameController: tenantNameController,
                                 currencyController: currencyController,
+                                limitController: limitController,
+                                feeController: feeController,
                                 onCreate: createTenant,
                               ),
                             ],
@@ -874,6 +876,8 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                           tenantIdController: tenantIdController,
                           tenantNameController: tenantNameController,
                           currencyController: currencyController,
+                          limitController: limitController,
+                          feeController: feeController,
                           onCreate: createTenant,
                         ),
                       ],
@@ -1833,6 +1837,8 @@ class TenantCreationPanel extends StatelessWidget {
     required this.tenantIdController,
     required this.tenantNameController,
     required this.currencyController,
+    required this.limitController,
+    required this.feeController,
     required this.onCreate,
   });
 
@@ -1841,6 +1847,8 @@ class TenantCreationPanel extends StatelessWidget {
   final TextEditingController tenantIdController;
   final TextEditingController tenantNameController;
   final TextEditingController currencyController;
+  final TextEditingController limitController;
+  final TextEditingController feeController;
   final VoidCallback onCreate;
 
   @override
@@ -1896,6 +1904,22 @@ class TenantCreationPanel extends StatelessWidget {
                       controller: currencyController,
                       icon: Icons.payments,
                       label: 'Moneda principal',
+                    ),
+                  ),
+                  SizedBox(
+                    width: fieldWidth,
+                    child: AppTextField(
+                      controller: limitController,
+                      icon: Icons.price_check,
+                      label: 'Limite por transaccion',
+                    ),
+                  ),
+                  SizedBox(
+                    width: fieldWidth,
+                    child: AppTextField(
+                      controller: feeController,
+                      icon: Icons.percent,
+                      label: 'Comision de transferencia',
                     ),
                   ),
                 ],
@@ -4377,10 +4401,16 @@ class TransactionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isCredit = transaction.type == 'deposit';
     final color = switch (transaction.type) {
-      'deposit' => Colors.green,
-      'withdrawal' => Colors.orange,
+      'deposit' => const Color(0xff0d7a52),
+      'withdrawal' => const Color(0xffb76b00),
       _ => const Color(0xff174ea6),
+    };
+    final typeIcon = switch (transaction.type) {
+      'deposit' => Icons.arrow_downward_rounded,
+      'withdrawal' => Icons.arrow_upward_rounded,
+      _ => Icons.compare_arrows_rounded,
     };
 
     return Container(
@@ -4389,31 +4419,53 @@ class TransactionRow extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border(left: BorderSide(color: color, width: 5)),
+        border: Border(left: BorderSide(color: color, width: 4)),
       ),
       child: Row(
         children: [
-          Icon(Icons.bolt, color: color),
-          const SizedBox(width: 10),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(typeIcon, color: color, size: 18),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   transaction.description,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xff102c69),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  '${transaction.type} | ${transaction.status} | ${transaction.accountId}',
+                  '${movementLabel(transaction.type)} · ${statusLabel(transaction.status)}',
+                  style: const TextStyle(
+                    color: Color(0xff647195),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           Text(
-            '${transaction.currency} ${transaction.amount.toStringAsFixed(2)}',
-            style: const TextStyle(
+            '${isCredit ? '+' : '−'} ${transaction.currency} ${money(transaction.amount)}',
+            style: TextStyle(
               fontWeight: FontWeight.w900,
-              color: Color(0xff102c69),
+              color: color,
+              fontSize: 14,
             ),
           ),
         ],
@@ -4699,29 +4751,27 @@ class SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 520;
     return Padding(
-      padding: EdgeInsets.only(bottom: compact ? 14 : 20),
+      padding: EdgeInsets.only(bottom: compact ? 12 : 16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            textAlign: TextAlign.center,
             style: TextStyle(
               color: const Color(0xff102c69),
-              fontSize: compact ? 30 : 40,
-              height: 1,
+              fontSize: compact ? 20 : 24,
+              height: 1.1,
               fontWeight: FontWeight.w900,
-              letterSpacing: 0,
+              letterSpacing: -0.3,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 3),
           Text(
             subtitle,
-            textAlign: TextAlign.center,
             style: TextStyle(
-              color: const Color(0xff1c326a),
-              fontSize: compact ? 17 : 20,
-              fontWeight: FontWeight.w500,
+              color: const Color(0xff647195),
+              fontSize: compact ? 13 : 14,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -4821,10 +4871,10 @@ class StadiumButton extends StatelessWidget {
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
           colors: [
-            Color(0xff009a66),
-            Color(0xffffd23f),
-            Color(0xffe6302f),
-            Color(0xff0047bd),
+            Color(0xff0b234d),
+            Color(0xff1a4fa8),
+            Color(0xff1976d2),
+            Color(0xffffc928),
           ],
         ),
         boxShadow: const [
@@ -5360,5 +5410,15 @@ String movementLabel(String type) {
     'withdrawal' => 'Retiro',
     'transfer' => 'Transferencia',
     _ => 'Operacion',
+  };
+}
+
+String statusLabel(String status) {
+  return switch (status) {
+    'completed' => 'Completada',
+    'pending' => 'Pendiente',
+    'failed' => 'Fallida',
+    'cancelled' => 'Cancelada',
+    _ => status,
   };
 }
