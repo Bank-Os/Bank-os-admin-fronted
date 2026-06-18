@@ -5,6 +5,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ── DDD layers ───────────────────────────────────────────────────────────
 import 'infrastructure/api/bank_os_api.dart' as infra;
@@ -211,7 +212,23 @@ class _BankOsHomePageState extends State<BankOsHomePage> {
     getAccountsUseCase = GetAccountsUseCase(AccountRepositoryImpl(infraApi));
 
     super.initState();
-    unawaited(loadBanks());
+    unawaited(_initializeApp());
+  }
+
+  Future<void> _initializeApp() async {
+    await loadBanks();
+    await _tryRestoreSession();
+  }
+
+  Future<void> _tryRestoreSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('session_token');
+    final userId = prefs.getString('session_userId');
+    final tenantId = prefs.getString('session_tenantId');
+    final role = prefs.getString('session_role');
+    if (token == null || userId == null || tenantId == null || role == null) return;
+    if (!mounted) return;
+    onLogin(LoginSession(token: token, userId: userId, tenantId: tenantId, role: role));
   }
 
   @override
@@ -299,6 +316,12 @@ class _BankOsHomePageState extends State<BankOsHomePage> {
       api.tenantId = value.tenantId;
       feedback = 'Sesion iniciada en ${selectedBank!.shortName}.';
     });
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('session_token', value.token);
+      prefs.setString('session_userId', value.userId);
+      prefs.setString('session_tenantId', value.tenantId);
+      prefs.setString('session_role', value.role);
+    });
     loadDashboard();
   }
 
@@ -309,6 +332,12 @@ class _BankOsHomePageState extends State<BankOsHomePage> {
       transactions = [];
       api.token = null;
       feedback = 'Sesion cerrada.';
+    });
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.remove('session_token');
+      prefs.remove('session_userId');
+      prefs.remove('session_tenantId');
+      prefs.remove('session_role');
     });
   }
 
@@ -543,6 +572,22 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     createTenantUseCase = CreateTenantUseCase(AdminRepositoryImpl(infraApi));
 
     super.initState();
+    unawaited(_tryRestoreAdminSession());
+  }
+
+  Future<void> _tryRestoreAdminSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('admin_session_token');
+    final userId = prefs.getString('admin_session_userId');
+    final tenantId = prefs.getString('admin_session_tenantId');
+    final role = prefs.getString('admin_session_role');
+    if (token == null || userId == null || tenantId == null || role == null) return;
+    if (!mounted) return;
+    setState(() {
+      adminSession = LoginSession(token: token, userId: userId, tenantId: tenantId, role: role);
+      api.token = token;
+    });
+    await loadTenants();
   }
 
   @override
@@ -660,6 +705,12 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
         signingIn = false;
         notice = 'Sesion maestra iniciada. Sincronizando tenants...';
       });
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('admin_session_token', session.token);
+        prefs.setString('admin_session_userId', session.userId);
+        prefs.setString('admin_session_tenantId', session.tenantId);
+        prefs.setString('admin_session_role', session.role);
+      });
       await loadTenants();
     } catch (exception) {
       if (!mounted) return;
@@ -678,6 +729,12 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
       adminSession = null;
       api.token = null;
       notice = 'Sesion admin cerrada.';
+    });
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.remove('admin_session_token');
+      prefs.remove('admin_session_userId');
+      prefs.remove('admin_session_tenantId');
+      prefs.remove('admin_session_role');
     });
   }
 
