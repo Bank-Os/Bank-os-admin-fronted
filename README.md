@@ -20,12 +20,14 @@ Consume la API publicada:
 
 `https://bankos.bytecore.tech`
 
-## Acceso de prueba
+## Acceso administrativo
 
-Usuario:
+El panel usa el login maestro de la API:
 
-`admin@banco-alfa.com`
+`POST /api/v1/SuperAuth/login-master`
 
-Contrasena:
+Las cuentas tipo `admin@banco-alfa.com` son administradores de un tenant especifico. Para entrar al dashboard principal se necesita una cuenta superadmin registrada en `SuperAuth`.
 
-`AdminBankOS2026!`
+## Nota de CORS
+
+Si se ejecuta en Flutter web local y el navegador bloquea llamadas a `https://bankos.bytecore.tech`, el ajuste debe hacerse en el backend para permitir `OPTIONS` y devolver `Access-Control-Allow-Origin` para localhost. El frontend ya apunta a la API publicada.

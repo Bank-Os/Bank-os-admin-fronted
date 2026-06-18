@@ -517,19 +517,19 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
   final currencyController = TextEditingController(text: 'COP');
   final limitController = TextEditingController(text: '10000000');
   final feeController = TextEditingController(text: '0.00');
+  final webhookController = TextEditingController();
   final adminEmailController = TextEditingController();
-  final adminPasswordController = TextEditingController(
-    text: 'AdminBankOS2026!',
-  );
+  final adminPasswordController = TextEditingController();
 
   List<BankInstitution> tenants = [];
   BankInstitution? selectedTenant;
   LoginSession? adminSession;
   String? error;
   String notice = 'Panel listo para administrar BankOS.';
-  bool loading = true;
+  bool loading = false;
   bool creating = false;
   bool signingIn = false;
+  bool savingWebhook = false;
 
   @override
   void initState() {
@@ -543,7 +543,6 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     createTenantUseCase = CreateTenantUseCase(AdminRepositoryImpl(infraApi));
 
     super.initState();
-    unawaited(loadTenants());
   }
 
   @override
@@ -554,14 +553,19 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     currencyController.dispose();
     limitController.dispose();
     feeController.dispose();
+    webhookController.dispose();
     adminEmailController.dispose();
     adminPasswordController.dispose();
     super.dispose();
   }
 
-  bool get isAdminAuthenticated =>
-      adminSession != null &&
-      adminSession!.role.toLowerCase().contains('admin');
+  bool get isAdminAuthenticated {
+    final role = adminSession?.role.toLowerCase() ?? '';
+    return adminSession?.token.isNotEmpty == true &&
+        (role.contains('admin') ||
+            role.contains('super') ||
+            role.contains('master'));
+  }
 
   List<BankInstitution> get filteredTenants {
     final query = searchController.text.trim().toLowerCase();
@@ -574,6 +578,15 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
   }
 
   Future<void> loadTenants() async {
+    if (!isAdminAuthenticated) {
+      setState(() {
+        loading = false;
+        tenants = [];
+        selectedTenant = null;
+      });
+      return;
+    }
+
     setState(() {
       loading = true;
       error = null;
@@ -584,13 +597,14 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
       if (!mounted) return;
       setState(() {
         tenants = loaded;
-        if (isAdminAuthenticated && loaded.isNotEmpty) {
+        if (loaded.isNotEmpty) {
           selectedTenant = selectedTenant == null
               ? loaded.first
               : loaded.firstWhere(
                   (tenant) => tenant.tenantId == selectedTenant!.tenantId,
                   orElse: () => loaded.first,
                 );
+          webhookController.text = selectedTenant?.webhookUrl ?? '';
         }
         loading = false;
         notice = loaded.isEmpty
@@ -610,25 +624,9 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     setState(() {
       selectedTenant = tenant;
       api.tenantId = tenant.tenantId;
+      webhookController.text = tenant.webhookUrl;
       notice = 'Tenant ${tenant.shortName} seleccionado.';
     });
-  }
-
-  String tenantFromAdminEmail(String email) {
-    final normalized = email.trim().toLowerCase();
-    final match = RegExp(r'^admin@([a-z0-9-]+)\.com$').firstMatch(normalized);
-    if (match != null) return match.group(1)!;
-
-    final domain = normalized.contains('@')
-        ? normalized.split('@').last.split('.').first
-        : '';
-    final fromTenantList = tenants.where((tenant) {
-      return tenant.tenantId.toLowerCase() == domain ||
-          tenant.name.toLowerCase().replaceAll(' ', '-') == domain;
-    }).toList();
-    if (fromTenantList.isNotEmpty) return fromTenantList.first.tenantId;
-
-    return selectedTenant?.tenantId ?? fallbackBank.tenantId;
   }
 
   Future<void> signInAdmin() async {
@@ -637,7 +635,6 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
       setState(() => notice = 'Ingresa correo y contrasena.');
       return;
     }
-    final tenantId = tenantFromAdminEmail(email);
 
     setState(() {
       signingIn = true;
@@ -646,21 +643,24 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     });
 
     try {
-      api.tenantId = tenantId;
-      final session = await api.login(
+      api.tenantId = fallbackBank.tenantId;
+      final session = await api.loginMaster(
         email: email,
         password: adminPasswordController.text,
       );
-      if (!session.role.toLowerCase().contains('admin')) {
-        throw Exception('El usuario no tiene rol administrador.');
+      final role = session.role.toLowerCase();
+      if (!role.contains('admin') &&
+          !role.contains('super') &&
+          !role.contains('master')) {
+        throw Exception('El usuario no tiene permisos de administracion.');
       }
       if (!mounted) return;
       setState(() {
         adminSession = session;
-        selectedTenant = bankByTenantId(session.tenantId, tenants);
         signingIn = false;
-        notice = 'Sesion admin iniciada.';
+        notice = 'Sesion maestra iniciada. Sincronizando tenants...';
       });
+      await loadTenants();
     } catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -679,6 +679,40 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
       api.token = null;
       notice = 'Sesion admin cerrada.';
     });
+  }
+
+  Future<void> saveWebhook() async {
+    final tenant = selectedTenant;
+    if (!isAdminAuthenticated || tenant == null) {
+      setState(() => notice = 'Selecciona un tenant para editar su webhook.');
+      return;
+    }
+
+    setState(() {
+      savingWebhook = true;
+      error = null;
+      notice = 'Actualizando webhook...';
+    });
+
+    try {
+      await api.updateTenantWebhook(
+        tenantId: tenant.tenantId,
+        webhookUrl: webhookController.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        savingWebhook = false;
+        notice = 'Webhook actualizado para ${tenant.shortName}.';
+      });
+      await loadTenants();
+    } catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        savingWebhook = false;
+        error = exception.toString().replaceFirst('Exception: ', '');
+        notice = 'No se pudo actualizar el webhook.';
+      });
+    }
   }
 
   Future<void> createTenant() async {
@@ -793,6 +827,13 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                             children: [
                               AdminTenantDetail(tenant: selectedTenant),
                               const SizedBox(height: 18),
+                              TenantWebhookPanel(
+                                tenant: selectedTenant,
+                                controller: webhookController,
+                                saving: savingWebhook,
+                                onSave: saveWebhook,
+                              ),
+                              const SizedBox(height: 18),
                               TenantCreationPanel(
                                 enabled: isAdminAuthenticated,
                                 creating: creating,
@@ -819,6 +860,13 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                         ),
                         const SizedBox(height: 18),
                         AdminTenantDetail(tenant: selectedTenant),
+                        const SizedBox(height: 18),
+                        TenantWebhookPanel(
+                          tenant: selectedTenant,
+                          controller: webhookController,
+                          saving: savingWebhook,
+                          onSave: saveWebhook,
+                        ),
                         const SizedBox(height: 18),
                         TenantCreationPanel(
                           enabled: isAdminAuthenticated,
@@ -1707,6 +1755,70 @@ class AdminConfigRow extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class TenantWebhookPanel extends StatelessWidget {
+  const TenantWebhookPanel({
+    super.key,
+    required this.tenant,
+    required this.controller,
+    required this.saving,
+    required this.onSave,
+  });
+
+  final BankInstitution? tenant;
+  final TextEditingController controller;
+  final bool saving;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = tenant;
+    return FrostedPanel(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionTitle(
+            title: 'Webhook del tenant',
+            subtitle: 'Endpoint tecnico para eventos de integracion',
+          ),
+          const SizedBox(height: 14),
+          if (selected == null)
+            const EmptyState(
+              icon: Icons.webhook,
+              text: 'Selecciona un tenant para configurar su webhook.',
+            )
+          else ...[
+            TextField(
+              controller: controller,
+              enabled: !saving,
+              keyboardType: TextInputType.url,
+              decoration: adminInputDecoration(
+                icon: Icons.link,
+                label: 'URL del webhook',
+              ),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: saving ? null : onSave,
+                icon: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
+                label: Text(saving ? 'Guardando...' : 'Guardar webhook'),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -4858,6 +4970,22 @@ class BankOsApi {
     return decodeResponse(response);
   }
 
+  Future<Map<String, dynamic>> patch(
+    String path,
+    Map<String, dynamic> body, {
+    bool auth = false,
+    bool mutation = false,
+  }) async {
+    final response = await _withTimeout(
+      http.patch(
+        uri(path),
+        headers: headers(auth: auth, mutation: mutation),
+        body: jsonEncode(body),
+      ),
+    );
+    return decodeResponse(response);
+  }
+
   Future<http.Response> _withTimeout(Future<http.Response> request) async {
     try {
       return await request.timeout(const Duration(seconds: 12));
@@ -4877,15 +5005,31 @@ class BankOsApi {
     required double transferFee,
     required bool isFeePercentage,
   }) async {
-    await post('/Tenants', {
-      'id': id,
-      'name': name,
-      'currency': currency,
-      'primaryCurrency': currency,
-      'maxTransactionLimit': maxTransactionLimit,
-      'transferFee': transferFee,
-      'isFeePercentage': isFeePercentage,
-    });
+    await post(
+      '/Tenants',
+      {
+        'id': id,
+        'name': name,
+        'primaryCurrency': currency,
+        'maxTransactionLimit': maxTransactionLimit,
+        'transferFee': transferFee,
+        'isFeePercentage': isFeePercentage,
+      },
+      auth: true,
+      mutation: true,
+    );
+  }
+
+  Future<void> updateTenantWebhook({
+    required String tenantId,
+    required String webhookUrl,
+  }) async {
+    await patch(
+      '/Tenants/${Uri.encodeComponent(tenantId)}/webhook',
+      {'webhookUrl': webhookUrl},
+      auth: true,
+      mutation: true,
+    );
   }
 
   Future<List<BankInstitution>> getTenants() async {
@@ -4944,6 +5088,26 @@ class BankOsApi {
       userId: (data['userId'] ?? data['UserId'] ?? '') as String,
       tenantId: (data['tenantId'] ?? data['TenantId'] ?? tenantId) as String,
       role: (data['role'] ?? data['UserRole'] ?? 'cliente') as String,
+    );
+  }
+
+  Future<LoginSession> loginMaster({
+    required String email,
+    required String password,
+  }) async {
+    final data = await post('/SuperAuth/login-master', {
+      'email': email,
+      'password': password,
+    });
+    token = (data['token'] ?? data['Token']) as String?;
+    if (token == null || token!.isEmpty) {
+      throw Exception('BankOS no retorno una sesion maestra valida.');
+    }
+    return LoginSession(
+      token: token!,
+      userId: '${data['userId'] ?? data['UserId'] ?? email}',
+      tenantId: '${data['tenantId'] ?? data['TenantId'] ?? 'master'}',
+      role: '${data['role'] ?? data['UserRole'] ?? 'superadmin'}',
     );
   }
 
