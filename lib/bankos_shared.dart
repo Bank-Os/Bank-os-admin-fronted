@@ -39,7 +39,6 @@ const fallbackBank = BankInstitution(
   maxTransactionLimit: 0,
   transferFee: 0,
   isFeePercentage: false,
-  webhookUrl: '',
   createdAt: '',
   primaryColor: Color(0xff102c69),
   accentColor: Color(0xffffc928),
@@ -62,7 +61,6 @@ BankInstitution bankByTenantId(
       maxTransactionLimit: 0,
       transferFee: 0,
       isFeePercentage: false,
-      webhookUrl: '',
       createdAt: '',
       primaryColor: const Color(0xff102c69),
       accentColor: const Color(0xffffc928),
@@ -82,7 +80,6 @@ class BankInstitution {
     required this.maxTransactionLimit,
     required this.transferFee,
     required this.isFeePercentage,
-    required this.webhookUrl,
     required this.createdAt,
     required this.primaryColor,
     required this.accentColor,
@@ -107,7 +104,6 @@ class BankInstitution {
     );
     final feePercentage =
         (json['isFeePercentage'] ?? json['IsFeePercentage'] ?? false) == true;
-    final webhook = '${json['webhookUrl'] ?? json['WebhookUrl'] ?? ''}'.trim();
     final createdAt = '${json['createdAt'] ?? json['CreatedAt'] ?? ''}'.trim();
     return BankInstitution(
       tenantId: tenantId,
@@ -119,7 +115,6 @@ class BankInstitution {
       maxTransactionLimit: maxLimit,
       transferFee: transferFee,
       isFeePercentage: feePercentage,
-      webhookUrl: webhook,
       createdAt: createdAt,
       primaryColor: const Color(0xff102c69),
       accentColor: const Color(0xffffc928),
@@ -136,7 +131,6 @@ class BankInstitution {
   final double maxTransactionLimit;
   final double transferFee;
   final bool isFeePercentage;
-  final String webhookUrl;
   final String createdAt;
   final Color primaryColor;
   final Color accentColor;
@@ -546,7 +540,6 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
   final currencyController = TextEditingController(text: 'COP');
   final limitController = TextEditingController(text: '10000000');
   final feeController = TextEditingController(text: '0.00');
-  final webhookController = TextEditingController();
   final adminEmailController = TextEditingController();
   final adminPasswordController = TextEditingController();
 
@@ -558,7 +551,7 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
   bool loading = false;
   bool creating = false;
   bool signingIn = false;
-  bool savingWebhook = false;
+  String? _deletingTenantId;
 
   @override
   void initState() {
@@ -598,7 +591,6 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     currencyController.dispose();
     limitController.dispose();
     feeController.dispose();
-    webhookController.dispose();
     adminEmailController.dispose();
     adminPasswordController.dispose();
     super.dispose();
@@ -649,7 +641,6 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                   (tenant) => tenant.tenantId == selectedTenant!.tenantId,
                   orElse: () => loaded.first,
                 );
-          webhookController.text = selectedTenant?.webhookUrl ?? '';
         }
         loading = false;
         notice = loaded.isEmpty
@@ -669,7 +660,6 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     setState(() {
       selectedTenant = tenant;
       api.tenantId = tenant.tenantId;
-      webhookController.text = tenant.webhookUrl;
       notice = 'Tenant ${tenant.shortName} seleccionado.';
     });
   }
@@ -738,36 +728,30 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
     });
   }
 
-  Future<void> saveWebhook() async {
-    final tenant = selectedTenant;
-    if (!isAdminAuthenticated || tenant == null) {
-      setState(() => notice = 'Selecciona un tenant para editar su webhook.');
-      return;
-    }
+  Future<void> deleteTenant(BankInstitution tenant) async {
+    if (!isAdminAuthenticated) return;
 
     setState(() {
-      savingWebhook = true;
+      _deletingTenantId = tenant.tenantId;
       error = null;
-      notice = 'Actualizando webhook...';
+      notice = 'Eliminando tenant ${tenant.shortName}...';
     });
 
     try {
-      await api.updateTenantWebhook(
-        tenantId: tenant.tenantId,
-        webhookUrl: webhookController.text.trim(),
-      );
+      await api.deleteTenant(tenantId: tenant.tenantId);
       if (!mounted) return;
       setState(() {
-        savingWebhook = false;
-        notice = 'Webhook actualizado para ${tenant.shortName}.';
+        _deletingTenantId = null;
+        if (selectedTenant?.tenantId == tenant.tenantId) selectedTenant = null;
+        notice = 'Tenant ${tenant.shortName} eliminado.';
       });
       await loadTenants();
     } catch (exception) {
       if (!mounted) return;
       setState(() {
-        savingWebhook = false;
+        _deletingTenantId = null;
         error = exception.toString().replaceFirst('Exception: ', '');
-        notice = 'No se pudo actualizar el webhook.';
+        notice = 'No se pudo eliminar el tenant.';
       });
     }
   }
@@ -876,6 +860,8 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                             selectedTenant: selectedTenant,
                             onSearchChanged: (_) => setState(() {}),
                             onTenantSelected: selectTenant,
+                            onDeleteTenant: deleteTenant,
+                            deletingTenantId: _deletingTenantId,
                           ),
                         ),
                         const SizedBox(width: 18),
@@ -883,13 +869,6 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                           child: Column(
                             children: [
                               AdminTenantDetail(tenant: selectedTenant),
-                              const SizedBox(height: 18),
-                              TenantWebhookPanel(
-                                tenant: selectedTenant,
-                                controller: webhookController,
-                                saving: savingWebhook,
-                                onSave: saveWebhook,
-                              ),
                               const SizedBox(height: 18),
                               TenantCreationPanel(
                                 enabled: isAdminAuthenticated,
@@ -916,16 +895,11 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
                           selectedTenant: selectedTenant,
                           onSearchChanged: (_) => setState(() {}),
                           onTenantSelected: selectTenant,
+                          onDeleteTenant: deleteTenant,
+                          deletingTenantId: _deletingTenantId,
                         ),
                         const SizedBox(height: 18),
                         AdminTenantDetail(tenant: selectedTenant),
-                        const SizedBox(height: 18),
-                        TenantWebhookPanel(
-                          tenant: selectedTenant,
-                          controller: webhookController,
-                          saving: savingWebhook,
-                          onSave: saveWebhook,
-                        ),
                         const SizedBox(height: 18),
                         TenantCreationPanel(
                           enabled: isAdminAuthenticated,
@@ -1526,6 +1500,8 @@ class TenantDirectoryPanel extends StatelessWidget {
     required this.selectedTenant,
     required this.onSearchChanged,
     required this.onTenantSelected,
+    required this.onDeleteTenant,
+    required this.deletingTenantId,
   });
 
   final bool loading;
@@ -1534,6 +1510,8 @@ class TenantDirectoryPanel extends StatelessWidget {
   final BankInstitution? selectedTenant;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<BankInstitution> onTenantSelected;
+  final ValueChanged<BankInstitution> onDeleteTenant;
+  final String? deletingTenantId;
 
   @override
   Widget build(BuildContext context) {
@@ -1580,7 +1558,9 @@ class TenantDirectoryPanel extends StatelessWidget {
                   TenantListTile(
                     tenant: tenant,
                     selected: tenant.tenantId == selectedTenant?.tenantId,
+                    deleting: deletingTenantId == tenant.tenantId,
                     onTap: () => onTenantSelected(tenant),
+                    onDelete: () => onDeleteTenant(tenant),
                   ),
               ],
             ),
@@ -1595,12 +1575,16 @@ class TenantListTile extends StatelessWidget {
     super.key,
     required this.tenant,
     required this.selected,
+    required this.deleting,
     required this.onTap,
+    required this.onDelete,
   });
 
   final BankInstitution tenant;
   final bool selected;
+  final bool deleting;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1663,7 +1647,41 @@ class TenantListTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: Color(0xff102c69)),
+                IconButton(
+                  onPressed: deleting ? null : () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Eliminar tenant'),
+                        content: Text(
+                          '¿Seguro que deseas eliminar "${tenant.name}"? Esta accion no se puede deshacer.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancelar'),
+                          ),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.red.shade700,
+                            ),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Eliminar'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) onDelete();
+                  },
+                  icon: deleting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline, color: Color(0xffb00020), size: 20),
+                  tooltip: 'Eliminar tenant',
+                ),
               ],
             ),
           ),
@@ -1751,13 +1769,6 @@ class AdminTenantDetail extends StatelessWidget {
                   value: current.primaryCurrency,
                 ),
                 AdminConfigRow(
-                  icon: Icons.webhook,
-                  label: 'Webhook',
-                  value: current.webhookUrl.isEmpty
-                      ? 'Sin configurar'
-                      : current.webhookUrl,
-                ),
-                AdminConfigRow(
                   icon: Icons.event_available,
                   label: 'Fecha de alta',
                   value: current.createdAt.isEmpty
@@ -1816,70 +1827,6 @@ class AdminConfigRow extends StatelessWidget {
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class TenantWebhookPanel extends StatelessWidget {
-  const TenantWebhookPanel({
-    super.key,
-    required this.tenant,
-    required this.controller,
-    required this.saving,
-    required this.onSave,
-  });
-
-  final BankInstitution? tenant;
-  final TextEditingController controller;
-  final bool saving;
-  final VoidCallback onSave;
-
-  @override
-  Widget build(BuildContext context) {
-    final selected = tenant;
-    return FrostedPanel(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SectionTitle(
-            title: 'Webhook del tenant',
-            subtitle: 'Endpoint tecnico para eventos de integracion',
-          ),
-          const SizedBox(height: 14),
-          if (selected == null)
-            const EmptyState(
-              icon: Icons.webhook,
-              text: 'Selecciona un tenant para configurar su webhook.',
-            )
-          else ...[
-            TextField(
-              controller: controller,
-              enabled: !saving,
-              keyboardType: TextInputType.url,
-              decoration: adminInputDecoration(
-                icon: Icons.link,
-                label: 'URL del webhook',
-              ),
-            ),
-            const SizedBox(height: 14),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: saving ? null : onSave,
-                icon: saving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(saving ? 'Guardando...' : 'Guardar webhook'),
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -4837,7 +4784,7 @@ class SectionTitle extends StatelessWidget {
   }
 }
 
-class AppTextField extends StatelessWidget {
+class AppTextField extends StatefulWidget {
   const AppTextField({
     super.key,
     required this.controller,
@@ -4845,6 +4792,8 @@ class AppTextField extends StatelessWidget {
     required this.label,
     this.hint,
     this.obscure = false,
+    this.keyboardType,
+    this.textInputAction,
   });
 
   final TextEditingController controller;
@@ -4852,20 +4801,42 @@ class AppTextField extends StatelessWidget {
   final String label;
   final String? hint;
   final bool obscure;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+
+  @override
+  State<AppTextField> createState() => _AppTextFieldState();
+}
+
+class _AppTextFieldState extends State<AppTextField> {
+  bool _hidden = true;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: TextField(
-        controller: controller,
-        obscureText: obscure,
+        controller: widget.controller,
+        obscureText: widget.obscure && _hidden,
+        keyboardType: widget.keyboardType,
+        textInputAction: widget.textInputAction,
         style: const TextStyle(
           color: Color(0xff132b63),
           fontSize: 18,
           fontWeight: FontWeight.w600,
         ),
-        decoration: inputDecoration(icon, label, hint),
+        decoration: inputDecoration(widget.icon, widget.label, widget.hint).copyWith(
+          suffixIcon: widget.obscure
+              ? IconButton(
+                  icon: Icon(
+                    _hidden ? Icons.visibility_off : Icons.visibility,
+                    color: const Color(0xff647195),
+                  ),
+                  onPressed: () => setState(() => _hidden = !_hidden),
+                  tooltip: _hidden ? 'Mostrar contrasena' : 'Ocultar contrasena',
+                )
+              : null,
+        ),
       ),
     );
   }
@@ -4880,7 +4851,7 @@ InputDecoration inputDecoration(IconData icon, String label, [String? hint]) {
     prefixIconConstraints: const BoxConstraints(minWidth: 70),
     labelText: label,
     hintText: hint,
-    floatingLabelBehavior: FloatingLabelBehavior.never,
+    floatingLabelBehavior: FloatingLabelBehavior.auto,
     labelStyle: const TextStyle(
       color: Color(0xff102c69),
       fontWeight: FontWeight.w900,
@@ -4912,11 +4883,13 @@ class StadiumButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.isLoading = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onPressed;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -4924,26 +4897,31 @@ class StadiumButton extends StatelessWidget {
       height: 62,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        gradient: const LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            Color(0xff0b234d),
-            Color(0xff1a4fa8),
-            Color(0xff1976d2),
-            Color(0xffffc928),
-          ],
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x66030a1c),
-            blurRadius: 22,
-            offset: Offset(0, 10),
-          ),
-        ],
+        gradient: isLoading
+            ? null
+            : const LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Color(0xff0b234d),
+                  Color(0xff1a4fa8),
+                  Color(0xff1976d2),
+                  Color(0xffffc928),
+                ],
+              ),
+        color: isLoading ? const Color(0xff8899bb) : null,
+        boxShadow: isLoading
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color(0x66030a1c),
+                  blurRadius: 22,
+                  offset: Offset(0, 10),
+                ),
+              ],
       ),
       child: FilledButton.icon(
-        onPressed: onPressed,
+        onPressed: isLoading ? null : onPressed,
         style: FilledButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -4951,7 +4929,16 @@ class StadiumButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
           ),
         ),
-        icon: Icon(icon, color: Colors.white),
+        icon: isLoading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(icon, color: Colors.white),
         label: Text(
           label,
           style: const TextStyle(
@@ -5127,15 +5114,10 @@ class BankOsApi {
     );
   }
 
-  Future<void> updateTenantWebhook({
-    required String tenantId,
-    required String webhookUrl,
-  }) async {
-    await patch(
-      '/Tenants/${Uri.encodeComponent(tenantId)}/webhook',
-      {'webhookUrl': webhookUrl},
+  Future<void> deleteTenant({required String tenantId}) async {
+    await delete(
+      '/Tenants/${Uri.encodeComponent(tenantId)}',
       auth: true,
-      mutation: true,
     );
   }
 
