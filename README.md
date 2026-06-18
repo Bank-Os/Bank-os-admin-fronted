@@ -31,3 +31,5 @@ Las cuentas tipo `admin@banco-alfa.com` son administradores de un tenant especif
 ## Nota de CORS
 
 Si se ejecuta en Flutter web local y el navegador bloquea llamadas a `https://bankos.bytecore.tech`, el ajuste debe hacerse en el backend para permitir `OPTIONS` y devolver `Access-Control-Allow-Origin` para localhost. El frontend ya apunta a la API publicada.
+
+active trigger
