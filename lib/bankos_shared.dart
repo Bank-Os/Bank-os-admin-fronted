@@ -6,6 +6,18 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+// ── DDD layers ───────────────────────────────────────────────────────────
+import 'infrastructure/api/bank_os_api.dart' as infra;
+import 'infrastructure/repositories/auth_repository_impl.dart';
+import 'infrastructure/repositories/account_repository_impl.dart';
+import 'infrastructure/repositories/bank_repository_impl.dart';
+import 'infrastructure/repositories/admin_repository_impl.dart';
+import 'application/use_cases/login_use_case.dart';
+import 'application/use_cases/register_use_case.dart';
+import 'application/use_cases/get_banks_use_case.dart';
+import 'application/use_cases/get_accounts_use_case.dart';
+import 'application/use_cases/create_tenant_use_case.dart';
+
 void main() {
   runApp(const BankOsApp());
 }
@@ -170,6 +182,12 @@ class _BankOsHomePageState extends State<BankOsHomePage> {
   final baseUrlController = TextEditingController(text: defaultApiBaseUrl());
   final api = BankOsApi();
 
+  // ── DDD use cases ───────────────────────────────────────────────────────
+  late final LoginUseCase loginUseCase;
+  late final RegisterUseCase registerUseCase;
+  late final GetBanksUseCase getBanksUseCase;
+  late final GetAccountsUseCase getAccountsUseCase;
+
   LoginSession? session;
   BankInstitution? selectedBank;
   List<BankInstitution> banks = [];
@@ -182,6 +200,16 @@ class _BankOsHomePageState extends State<BankOsHomePage> {
 
   @override
   void initState() {
+    // ── DDD wiring ─────────────────────────────────────────────────────────
+    final infraApi = infra.BankOsApi(
+      baseUrl: defaultApiBaseUrl(),
+      tenantId: fallbackBank.tenantId,
+    );
+    loginUseCase = LoginUseCase(AuthRepositoryImpl(infraApi));
+    registerUseCase = RegisterUseCase(AuthRepositoryImpl(infraApi));
+    getBanksUseCase = GetBanksUseCase(BankRepositoryImpl(infraApi));
+    getAccountsUseCase = GetAccountsUseCase(AccountRepositoryImpl(infraApi));
+
     super.initState();
     unawaited(loadBanks());
   }
@@ -477,6 +505,12 @@ class BankOsAdminPage extends StatefulWidget {
 
 class _BankOsAdminPageState extends State<BankOsAdminPage> {
   final api = BankOsApi();
+
+  // ── DDD use cases ───────────────────────────────────────────────────────
+  late final LoginUseCase loginUseCase;
+  late final GetBanksUseCase getBanksUseCase;
+  late final CreateTenantUseCase createTenantUseCase;
+
   final searchController = TextEditingController();
   final tenantIdController = TextEditingController();
   final tenantNameController = TextEditingController();
@@ -499,6 +533,15 @@ class _BankOsAdminPageState extends State<BankOsAdminPage> {
 
   @override
   void initState() {
+    // ── DDD wiring ─────────────────────────────────────────────────────────
+    final infraApi = infra.BankOsApi(
+      baseUrl: defaultApiBaseUrl(),
+      tenantId: fallbackBank.tenantId,
+    );
+    loginUseCase = LoginUseCase(AuthRepositoryImpl(infraApi));
+    getBanksUseCase = GetBanksUseCase(BankRepositoryImpl(infraApi));
+    createTenantUseCase = CreateTenantUseCase(AdminRepositoryImpl(infraApi));
+
     super.initState();
     unawaited(loadTenants());
   }
